@@ -1,3 +1,14 @@
+# The program was created with use of the "PythonCode" online tutorial (https://www.thepythoncode.com/article/sql-injection-vulnerability-detector-in-python)
+# The code has been expanded to search for more SQl errors by use of https://github.com/sqlmapproject/sqlmap/blob/master/data/xml/errors.xml
+# This XML file contains a large number of known SQL error messages the program uses to look for within the response from the webpage.
+# The program was also altered by the use of a WHILE loop in order to run the program against different targets.
+# Furthermore, the use of a banner and a reminder to use the tool correctly has been included.
+
+
+
+
+
+
 import requests
 from bs4 import BeautifulSoup 
 from urllib.parse import urljoin
@@ -16,34 +27,35 @@ while True:
 	
 
 	def get_all_forms(url):
-	
+		# this functions if given a URL return all forms from the HTML content
 		soup = BeautifulSoup(s.get(url).content, "html.parser")
 		return soup.find_all("form")
 
 	def get_form_details(form):
-	
+		# this function extracts all useful information about an HTML "form"
 		details = {}
-
+		# get the form action (target url)
 		try:
 			action = form.attrs.get("action").lower()
 		except:
 			action = None
-
+		# get the form method (POST, GET, etc.)
 		method = form.attrs.get("method", "get").lower()
-
+		# get all the input detail (TYPE, Name, VALUE)
 		inputs = []
 		for input_tag in form.find_all("input"):
 			input_type = input_tag.attrs.get("type", "text")
 			input_name = input_tag.attrs.get("name")
 			input_value = input_tag.attrs.get("value", "")
 			inputs.append({"type": input_type, "name": input_name, "value":input_value})
-
+		# this puts all the corrseponding information into a dictionary
 		details["action"] = action
 		details["method"] = method
 		details["inputs"] = inputs
 		return details
 
 	def errors_detected(response):
+		# this is a fucntion which determines if a page is vulnerable to SQL by find a known error message within the responce of website
 		errors = {
 			# MySQL
 			"you have an error in this sql Syntax;",
@@ -230,40 +242,52 @@ while True:
 			"Virtuoso S0002 Error",
 			"\[(Virtuoso Driver|Virtuoso iODBC Driver)\]\[Virtuoso Server\]",
 		}
-
+		# This list was complied from https://github.com/sqlmapproject/sqlmap/blob/master/data/xml/errors.xml
+		# The belwo for loop checks that if a error fromt eh above list is found in the response then the program will print the found error message
 		for error in errors:
 			if error in response.content.decode().lower():
 				print("This is the the detected error:", error)
 				return True
+		# No error was found in response
 		return False
 
 	def SQL_error_scan(url):
 		for c in "\"'":
+			# Adds quote and or double quote character to the URL
 			new_url = f"{url}{c}"
 			print("[!] Trying", new_url)
+			# Makes a HTTP request
 			res = s.get(new_url)
 			if errors_detected(res):
+				# This meas a SQl vulnerablity has been found
+				# No need to preceed for extracting forms and submitting them
 				print("[+] SQl Injection vulnerability detected, link:", new_url)
 			return
+		# Test on HTML Forms
 		forms = get_all_forms(url)
 		print(f"[+] Detected {len(forms)} forms on {url}.")
 		for form in forms:
 			form_details = get_form_details(form)
 			for c in "\"'":
+				# The Data body we want to submit
 				data = {}
 				for input_tag in form_details["inputs"]:
 					if input_tag["value"] or input_tag["type"] == "hidden":
+						# If any input form is hidden or has value, use t in the form body
 						try:
 							data[input_tag["name"]] = input_tag["value"] + c
 						except:
 							pass
 					elif input_tag["type"] != "submit":
+						# All others except submit, use some juk data with special charater.
 						data[input_tag["name"]] = f"test{c}"
+				# Join the url with the action (form request URL
 				url = urljoin(url, form_details["action"])
 				if form_details["method"] == "post":
 					res = s.post(url, data=data)
 				elif form_details["method"] == "get":
 					res = s.get(url, params=data)
+				# test whether the resulting page is vulnerable
 				if vulnerability_check(res):
 					print("[+] SQL Injections vulnerability detected, link:", url)
 					print("[+] Form:")
@@ -275,7 +299,3 @@ while True:
 	if user_input == "quit":
 		break
 	SQL_error_scan(url)
-
-# if __name__ == "__main__":
-# 	url = "http://testphp.vulnweb.com/artists.php?artist=1"
-# 	SQL_error_scan(url)
